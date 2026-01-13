@@ -216,11 +216,13 @@
         let decreaseInterval;
         let maxLevelTimeout;
         let cooldownTimeout;
+        let vibrationInterval;
         let currentMode = 'emf';
         let isBroken = false;
         let isCooling = false;
         let isAtMaxLevel = false;
         let lastVibrationTime = 0;
+        let targetLevel = 0;
 
         const reading = document.getElementById('reading');
         const levelText = document.getElementById('levelText');
@@ -238,33 +240,30 @@
             document.getElementById('bar5')
         ];
 
-        // Функция для вибрации через Telegram Web App
-        function triggerVibration(intensity = 'light') {
-            const now = Date.now();
-            if (now - lastVibrationTime < 50) return; // Ограничиваем частоту
-            lastVibrationTime = now;
-
+        // Сильная вибрация через Telegram Web App
+        function triggerStrongVibration(intensity = 'heavy') {
             if (hasHapticFeedback && tg.HapticFeedback) {
                 try {
-                    if (isAtMaxLevel && emfLevel >= getMaxLevel()) {
-                        // Сильная вибрация на максимуме
-                        tg.HapticFeedback.impactOccurred('heavy');
-                    } else if (emfLevel > 0) {
-                        // Вибрация в зависимости от уровня
-                        const level = getMaxLevel();
-                        const ratio = emfLevel / level;
-                        
-                        if (ratio > 0.7) {
-                            tg.HapticFeedback.impactOccurred('heavy');
-                        } else if (ratio > 0.4) {
-                            tg.HapticFeedback.impactOccurred('medium');
-                        } else {
-                            tg.HapticFeedback.impactOccurred('light');
-                        }
-                    }
+                    tg.HapticFeedback.impactOccurred('heavy');
                 } catch (e) {
                     console.log('Vibration error:', e);
                 }
+            }
+        }
+
+        // Непрерывная вибрация на максимуме
+        function startContinuousVibration() {
+            if (vibrationInterval) clearInterval(vibrationInterval);
+            
+            vibrationInterval = setInterval(() => {
+                triggerStrongVibration();
+            }, 100); // Очень частая вибрация
+        }
+
+        function stopContinuousVibration() {
+            if (vibrationInterval) {
+                clearInterval(vibrationInterval);
+                vibrationInterval = null;
             }
         }
 
@@ -272,6 +271,11 @@
             if (currentMode === 'emf') return 5;
             if (currentMode === 'aura') return 100;
             return 30;
+        }
+
+        function generateRandomLevel() {
+            const maxLevel = getMaxLevel();
+            return Math.floor(Math.random() * (maxLevel + 1));
         }
 
         function updateDisplay() {
@@ -427,12 +431,16 @@
 
             if (emfLevel >= maxLevel) {
                 isAtMaxLevel = true;
+                // Запускаем непрерывную вибрацию на максимуме
+                startContinuousVibration();
+                
                 clearTimeout(maxLevelTimeout);
                 maxLevelTimeout = setTimeout(() => {
                     isBroken = true;
                     isCooling = true;
                     clearInterval(increaseInterval);
                     clearInterval(decreaseInterval);
+                    stopContinuousVibration();
                     secretZone.classList.add('cooling');
                     secretZone.classList.remove('active');
                     secretZone.textContent = 'Охлаждение...';
@@ -464,8 +472,11 @@
             secretZone.classList.add('active');
             
             clearInterval(decreaseInterval);
-
+            stopContinuousVibration();
+            
             const maxLevel = getMaxLevel();
+            targetLevel = generateRandomLevel(); // Генерируем случайный целевой уровень
+
             let speed;
             if (currentMode === 'emf') {
                 speed = 800;
@@ -479,7 +490,7 @@
                 if (emfLevel < maxLevel) {
                     emfLevel++;
                     updateDisplay();
-                    triggerVibration();
+                    triggerStrongVibration();
                     checkMaxLevel();
                 }
             }, speed);
@@ -489,6 +500,7 @@
             isHolding = false;
             secretZone.classList.remove('active');
             clearInterval(increaseInterval);
+            stopContinuousVibration();
             clearTimeout(maxLevelTimeout);
             isAtMaxLevel = false;
             
@@ -547,6 +559,7 @@
                 secretZone.textContent = 'Калибровка';
                 clearInterval(increaseInterval);
                 clearInterval(decreaseInterval);
+                stopContinuousVibration();
                 clearTimeout(maxLevelTimeout);
                 clearTimeout(cooldownTimeout);
                 updateDisplay();
@@ -568,6 +581,7 @@
                 secretZone.textContent = 'Калибровка';
                 clearInterval(increaseInterval);
                 clearInterval(decreaseInterval);
+                stopContinuousVibration();
                 clearTimeout(maxLevelTimeout);
                 clearTimeout(cooldownTimeout);
                 updateDisplay();
@@ -589,20 +603,12 @@
                 secretZone.textContent = 'Калибровка';
                 clearInterval(increaseInterval);
                 clearInterval(decreaseInterval);
+                stopContinuousVibration();
                 clearTimeout(maxLevelTimeout);
                 clearTimeout(cooldownTimeout);
                 updateDisplay();
             }
         });
-
-        // Обновляем статус вибрации
-        if (hasHapticFeedback) {
-            vibrationStatus.textContent = '✓ Вибрация доступна';
-            vibrationStatus.style.color = '#4caf50';
-        } else {
-            vibrationStatus.textContent = '✗ Вибрация не поддерживается';
-            vibrationStatus.style.color = '#f44336';
-        }
 
         updateDisplay();
 
