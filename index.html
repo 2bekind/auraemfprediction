@@ -193,6 +193,8 @@
         let currentMode = 'emf'; // 'emf', 'aura', or 'radiation'
         let isBroken = false;
         let isCooling = false;
+        let vibrationInterval;
+        let isAtMaxLevel = false;
 
         const reading = document.getElementById('reading');
         const levelText = document.getElementById('levelText');
@@ -212,22 +214,44 @@
         function triggerVibration() {
             if (!navigator.vibrate) return;
             
-            let duration;
             let maxLevel;
-            
             if (currentMode === 'emf') {
                 maxLevel = 5;
-                duration = (emfLevel / maxLevel) * 100;
             } else if (currentMode === 'aura') {
                 maxLevel = 100;
-                duration = (emfLevel / maxLevel) * 100;
             } else {
                 maxLevel = 30;
-                duration = (emfLevel / maxLevel) * 100;
             }
+
+            if (emfLevel >= maxLevel && isAtMaxLevel) {
+                // Continuous intense vibration at max level
+                navigator.vibrate([100, 50, 100, 50]);
+            } else if (emfLevel > 0) {
+                // Gradual vibration based on current level
+                let intensity = Math.ceil((emfLevel / maxLevel) * 100);
+                let pattern = [intensity, 30];
+                navigator.vibrate(pattern);
+            }
+        }
+
+        function startContinuousVibration() {
+            // Clear any existing vibration interval
+            if (vibrationInterval) clearInterval(vibrationInterval);
             
-            if (duration > 10) {
-                navigator.vibrate(duration);
+            // Trigger vibration continuously while holding
+            vibrationInterval = setInterval(() => {
+                triggerVibration();
+            }, 200);
+        }
+
+        function stopContinuousVibration() {
+            if (vibrationInterval) {
+                clearInterval(vibrationInterval);
+                vibrationInterval = null;
+            }
+            // Stop vibration
+            if (navigator.vibrate) {
+                navigator.vibrate(0);
             }
         }
 
@@ -390,18 +414,24 @@
             }
 
             if (emfLevel >= maxLevel) {
+                isAtMaxLevel = true;
                 clearTimeout(maxLevelTimeout);
                 maxLevelTimeout = setTimeout(() => {
                     isBroken = true;
                     isCooling = true;
                     clearInterval(increaseInterval);
                     clearInterval(decreaseInterval);
+                    stopContinuousVibration();
                     secretZone.classList.add('cooling');
                     secretZone.classList.remove('active');
                     secretZone.textContent = 'Охлаждение...';
+                    isAtMaxLevel = false;
                     updateDisplay();
                     
-                    navigator.vibrate && navigator.vibrate([200, 100, 200, 100, 200]);
+                    // Final burst vibration pattern
+                    if (navigator.vibrate) {
+                        navigator.vibrate([200, 100, 200, 100, 200]);
+                    }
                     
                     cooldownTimeout = setTimeout(() => {
                         isBroken = false;
@@ -423,6 +453,7 @@
             secretZone.classList.add('active');
             
             clearInterval(decreaseInterval);
+            startContinuousVibration();
 
             let maxLevel, speed;
             if (currentMode === 'emf') {
@@ -440,7 +471,6 @@
                 if (emfLevel < maxLevel) {
                     emfLevel++;
                     updateDisplay();
-                    triggerVibration();
                     checkMaxLevel();
                 }
             }, speed);
@@ -450,7 +480,9 @@
             isHolding = false;
             secretZone.classList.remove('active');
             clearInterval(increaseInterval);
+            stopContinuousVibration();
             clearTimeout(maxLevelTimeout);
+            isAtMaxLevel = false;
             
             if (!isBroken) {
                 startDecrease();
@@ -498,6 +530,7 @@
                 emfLevel = 0;
                 isBroken = false;
                 isCooling = false;
+                isAtMaxLevel = false;
                 emfBtn.classList.add('active');
                 auraBtn.classList.remove('active');
                 radBtn.classList.remove('active');
@@ -506,6 +539,7 @@
                 secretZone.textContent = 'Калибровка';
                 clearInterval(increaseInterval);
                 clearInterval(decreaseInterval);
+                stopContinuousVibration();
                 clearTimeout(maxLevelTimeout);
                 clearTimeout(cooldownTimeout);
                 updateDisplay();
@@ -518,6 +552,7 @@
                 emfLevel = 0;
                 isBroken = false;
                 isCooling = false;
+                isAtMaxLevel = false;
                 auraBtn.classList.add('active');
                 emfBtn.classList.remove('active');
                 radBtn.classList.remove('active');
@@ -526,6 +561,7 @@
                 secretZone.textContent = 'Калибровка';
                 clearInterval(increaseInterval);
                 clearInterval(decreaseInterval);
+                stopContinuousVibration();
                 clearTimeout(maxLevelTimeout);
                 clearTimeout(cooldownTimeout);
                 updateDisplay();
@@ -538,6 +574,7 @@
                 emfLevel = 0;
                 isBroken = false;
                 isCooling = false;
+                isAtMaxLevel = false;
                 radBtn.classList.add('active');
                 emfBtn.classList.remove('active');
                 auraBtn.classList.remove('active');
@@ -546,6 +583,7 @@
                 secretZone.textContent = 'Калибровка';
                 clearInterval(increaseInterval);
                 clearInterval(decreaseInterval);
+                stopContinuousVibration();
                 clearTimeout(maxLevelTimeout);
                 clearTimeout(cooldownTimeout);
                 updateDisplay();
