@@ -2,13 +2,19 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>EMF Детектор</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+            -webkit-text-size-adjust: 100%;
         }
 
         body {
@@ -19,6 +25,8 @@
             align-items: center;
             min-height: 100vh;
             user-select: none;
+            touch-action: manipulation;
+            overflow: hidden;
         }
 
         .detector {
@@ -100,6 +108,13 @@
             font-weight: 400;
         }
 
+        .vibration-status {
+            font-size: 12px;
+            color: #666;
+            margin-top: 8px;
+            display: none;
+        }
+
         .bars {
             display: flex;
             justify-content: center;
@@ -169,6 +184,7 @@
         <div class="screen">
             <div class="reading" id="reading">0</div>
             <div class="level-text" id="levelText">Нормально</div>
+            <div class="vibration-status" id="vibrationStatus">инициализация...</div>
             <div class="bars">
                 <div class="bar"><div class="bar-fill" id="bar1"></div></div>
                 <div class="bar"><div class="bar-fill" id="bar2"></div></div>
@@ -184,22 +200,33 @@
     </div>
 
     <script>
+        const tg = window.Telegram.WebApp;
+        let hasHapticFeedback = false;
+
+        // Инициализация Telegram Web App
+        if (tg) {
+            tg.ready();
+            tg.expand();
+            hasHapticFeedback = !!tg.HapticFeedback;
+        }
+
         let emfLevel = 0;
         let isHolding = false;
         let increaseInterval;
         let decreaseInterval;
         let maxLevelTimeout;
         let cooldownTimeout;
-        let currentMode = 'emf'; // 'emf', 'aura', or 'radiation'
+        let currentMode = 'emf';
         let isBroken = false;
         let isCooling = false;
-        let vibrationInterval;
         let isAtMaxLevel = false;
+        let lastVibrationTime = 0;
 
         const reading = document.getElementById('reading');
         const levelText = document.getElementById('levelText');
         const titleText = document.getElementById('titleText');
         const secretZone = document.getElementById('secretZone');
+        const vibrationStatus = document.getElementById('vibrationStatus');
         const emfBtn = document.getElementById('emfBtn');
         const auraBtn = document.getElementById('auraBtn');
         const radBtn = document.getElementById('radBtn');
@@ -211,48 +238,40 @@
             document.getElementById('bar5')
         ];
 
-        function triggerVibration() {
-            if (!navigator.vibrate) return;
-            
-            let maxLevel;
-            if (currentMode === 'emf') {
-                maxLevel = 5;
-            } else if (currentMode === 'aura') {
-                maxLevel = 100;
-            } else {
-                maxLevel = 30;
-            }
+        // Функция для вибрации через Telegram Web App
+        function triggerVibration(intensity = 'light') {
+            const now = Date.now();
+            if (now - lastVibrationTime < 50) return; // Ограничиваем частоту
+            lastVibrationTime = now;
 
-            if (emfLevel >= maxLevel && isAtMaxLevel) {
-                // Continuous intense vibration at max level
-                navigator.vibrate([100, 50, 100, 50]);
-            } else if (emfLevel > 0) {
-                // Gradual vibration based on current level
-                let intensity = Math.ceil((emfLevel / maxLevel) * 100);
-                let pattern = [intensity, 30];
-                navigator.vibrate(pattern);
+            if (hasHapticFeedback && tg.HapticFeedback) {
+                try {
+                    if (isAtMaxLevel && emfLevel >= getMaxLevel()) {
+                        // Сильная вибрация на максимуме
+                        tg.HapticFeedback.impactOccurred('heavy');
+                    } else if (emfLevel > 0) {
+                        // Вибрация в зависимости от уровня
+                        const level = getMaxLevel();
+                        const ratio = emfLevel / level;
+                        
+                        if (ratio > 0.7) {
+                            tg.HapticFeedback.impactOccurred('heavy');
+                        } else if (ratio > 0.4) {
+                            tg.HapticFeedback.impactOccurred('medium');
+                        } else {
+                            tg.HapticFeedback.impactOccurred('light');
+                        }
+                    }
+                } catch (e) {
+                    console.log('Vibration error:', e);
+                }
             }
         }
 
-        function startContinuousVibration() {
-            // Clear any existing vibration interval
-            if (vibrationInterval) clearInterval(vibrationInterval);
-            
-            // Trigger vibration continuously while holding
-            vibrationInterval = setInterval(() => {
-                triggerVibration();
-            }, 200);
-        }
-
-        function stopContinuousVibration() {
-            if (vibrationInterval) {
-                clearInterval(vibrationInterval);
-                vibrationInterval = null;
-            }
-            // Stop vibration
-            if (navigator.vibrate) {
-                navigator.vibrate(0);
-            }
+        function getMaxLevel() {
+            if (currentMode === 'emf') return 5;
+            if (currentMode === 'aura') return 100;
+            return 30;
         }
 
         function updateDisplay() {
@@ -404,14 +423,7 @@
         }
 
         function checkMaxLevel() {
-            let maxLevel;
-            if (currentMode === 'emf') {
-                maxLevel = 5;
-            } else if (currentMode === 'aura') {
-                maxLevel = 100;
-            } else {
-                maxLevel = 30;
-            }
+            const maxLevel = getMaxLevel();
 
             if (emfLevel >= maxLevel) {
                 isAtMaxLevel = true;
@@ -421,16 +433,15 @@
                     isCooling = true;
                     clearInterval(increaseInterval);
                     clearInterval(decreaseInterval);
-                    stopContinuousVibration();
                     secretZone.classList.add('cooling');
                     secretZone.classList.remove('active');
                     secretZone.textContent = 'Охлаждение...';
                     isAtMaxLevel = false;
                     updateDisplay();
                     
-                    // Final burst vibration pattern
-                    if (navigator.vibrate) {
-                        navigator.vibrate([200, 100, 200, 100, 200]);
+                    // Финальная сильная вибрация
+                    if (hasHapticFeedback && tg.HapticFeedback) {
+                        tg.HapticFeedback.notificationOccurred('warning');
                     }
                     
                     cooldownTimeout = setTimeout(() => {
@@ -453,17 +464,14 @@
             secretZone.classList.add('active');
             
             clearInterval(decreaseInterval);
-            startContinuousVibration();
 
-            let maxLevel, speed;
+            const maxLevel = getMaxLevel();
+            let speed;
             if (currentMode === 'emf') {
-                maxLevel = 5;
                 speed = 800;
             } else if (currentMode === 'aura') {
-                maxLevel = 100;
                 speed = 150;
             } else {
-                maxLevel = 30;
                 speed = 200;
             }
 
@@ -471,6 +479,7 @@
                 if (emfLevel < maxLevel) {
                     emfLevel++;
                     updateDisplay();
+                    triggerVibration();
                     checkMaxLevel();
                 }
             }, speed);
@@ -480,7 +489,6 @@
             isHolding = false;
             secretZone.classList.remove('active');
             clearInterval(increaseInterval);
-            stopContinuousVibration();
             clearTimeout(maxLevelTimeout);
             isAtMaxLevel = false;
             
@@ -539,7 +547,6 @@
                 secretZone.textContent = 'Калибровка';
                 clearInterval(increaseInterval);
                 clearInterval(decreaseInterval);
-                stopContinuousVibration();
                 clearTimeout(maxLevelTimeout);
                 clearTimeout(cooldownTimeout);
                 updateDisplay();
@@ -561,7 +568,6 @@
                 secretZone.textContent = 'Калибровка';
                 clearInterval(increaseInterval);
                 clearInterval(decreaseInterval);
-                stopContinuousVibration();
                 clearTimeout(maxLevelTimeout);
                 clearTimeout(cooldownTimeout);
                 updateDisplay();
@@ -583,14 +589,44 @@
                 secretZone.textContent = 'Калибровка';
                 clearInterval(increaseInterval);
                 clearInterval(decreaseInterval);
-                stopContinuousVibration();
                 clearTimeout(maxLevelTimeout);
                 clearTimeout(cooldownTimeout);
                 updateDisplay();
             }
         });
 
+        // Обновляем статус вибрации
+        if (hasHapticFeedback) {
+            vibrationStatus.textContent = '✓ Вибрация доступна';
+            vibrationStatus.style.color = '#4caf50';
+        } else {
+            vibrationStatus.textContent = '✗ Вибрация не поддерживается';
+            vibrationStatus.style.color = '#f44336';
+        }
+
         updateDisplay();
+
+        // Отключаем zoom
+        document.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 1) {
+                e.preventDefault();
+            }
+        }, { passive: false });
+
+        document.addEventListener('wheel', (e) => {
+            if (e.ctrlKey) {
+                e.preventDefault();
+            }
+        }, { passive: false });
+
+        let lastTouchEnd = 0;
+        document.addEventListener('touchend', (e) => {
+            const now = Date.now();
+            if (now - lastTouchEnd <= 300) {
+                e.preventDefault();
+            }
+            lastTouchEnd = now;
+        }, false);
     </script>
 </body>
 </html>
