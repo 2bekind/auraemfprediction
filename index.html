@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EMF Детектор</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: #1c1c1c;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            user-select: none;
+        }
+
+        .detector {
+            background: #2a2a2a;
+            border: 1px solid #3a3a3a;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+            max-width: 380px;
+            width: 90%;
+        }
+
+        .titlebar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #3a3a3a;
+        }
+
+        .title {
+            font-size: 13px;
+            color: #999;
+            font-weight: 500;
+        }
+
+        .mode-selector {
+            display: flex;
+            gap: 6px;
+            background: #1e1e1e;
+            padding: 4px;
+            border-radius: 6px;
+            border: 1px solid #3a3a3a;
+        }
+
+        .mode-btn {
+            padding: 6px 12px;
+            font-size: 11px;
+            color: #999;
+            background: transparent;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: inherit;
+        }
+
+        .mode-btn:hover {
+            background: #2a2a2a;
+        }
+
+        .mode-btn.active {
+            background: #3a3a3a;
+            color: #fff;
+        }
+
+        .screen {
+            background: #1e1e1e;
+            border: 1px solid #3a3a3a;
+            border-radius: 8px;
+            padding: 30px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .reading {
+            font-size: 64px;
+            font-weight: 300;
+            margin: 20px 0;
+            transition: color 0.3s ease;
+            color: #fff;
+        }
+
+        .level-text {
+            font-size: 16px;
+            margin-top: 10px;
+            color: #999;
+            font-weight: 400;
+        }
+
+        .bars {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin: 25px 0;
+        }
+
+        .bar {
+            width: 28px;
+            height: 80px;
+            background: #333;
+            border: 1px solid #3a3a3a;
+            border-radius: 4px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .bar-fill {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            transition: height 0.2s ease, background-color 0.3s ease;
+        }
+
+        .secret-zone {
+            height: 70px;
+            background: #1e1e1e;
+            border: 1px solid #3a3a3a;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            color: #666;
+        }
+
+        .secret-zone:hover {
+            background: #2a2a2a;
+        }
+
+        .secret-zone.active {
+            background: #1e3a1e;
+            border-color: #4a6a4a;
+        }
+
+        .secret-zone.cooling {
+            background: #3a1e1e;
+            border-color: #6a4a4a;
+            color: #ff5722;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="detector">
+        <div class="titlebar">
+            <div class="title" id="titleText">EMF Detector</div>
+            <div class="mode-selector">
+                <button class="mode-btn active" id="emfBtn">EMF</button>
+                <button class="mode-btn" id="auraBtn">Aura</button>
+                <button class="mode-btn" id="radBtn">Radiation</button>
+            </div>
+        </div>
+        
+        <div class="screen">
+            <div class="reading" id="reading">0</div>
+            <div class="level-text" id="levelText">Нормально</div>
+            <div class="bars">
+                <div class="bar"><div class="bar-fill" id="bar1"></div></div>
+                <div class="bar"><div class="bar-fill" id="bar2"></div></div>
+                <div class="bar"><div class="bar-fill" id="bar3"></div></div>
+                <div class="bar"><div class="bar-fill" id="bar4"></div></div>
+                <div class="bar"><div class="bar-fill" id="bar5"></div></div>
+            </div>
+        </div>
+        
+        <div class="secret-zone" id="secretZone">
+            Калибровка
+        </div>
+    </div>
+
+    <script>
+        let emfLevel = 0;
+        let isHolding = false;
+        let increaseInterval;
+        let decreaseInterval;
+        let maxLevelTimeout;
+        let cooldownTimeout;
+        let currentMode = 'emf'; // 'emf', 'aura', or 'radiation'
+        let isBroken = false;
+        let isCooling = false;
+
+        const reading = document.getElementById('reading');
+        const levelText = document.getElementById('levelText');
+        const titleText = document.getElementById('titleText');
+        const secretZone = document.getElementById('secretZone');
+        const emfBtn = document.getElementById('emfBtn');
+        const auraBtn = document.getElementById('auraBtn');
+        const radBtn = document.getElementById('radBtn');
+        const bars = [
+            document.getElementById('bar1'),
+            document.getElementById('bar2'),
+            document.getElementById('bar3'),
+            document.getElementById('bar4'),
+            document.getElementById('bar5')
+        ];
+
+        function triggerVibration() {
+            if (!navigator.vibrate) return;
+            
+            let duration;
+            let maxLevel;
+            
+            if (currentMode === 'emf') {
+                maxLevel = 5;
+                duration = (emfLevel / maxLevel) * 100;
+            } else if (currentMode === 'aura') {
+                maxLevel = 100;
+                duration = (emfLevel / maxLevel) * 100;
+            } else {
+                maxLevel = 30;
+                duration = (emfLevel / maxLevel) * 100;
+            }
+            
+            if (duration > 10) {
+                navigator.vibrate(duration);
+            }
+        }
+
+        function updateDisplay() {
+            if (isBroken) {
+                reading.style.color = '#666';
+                levelText.style.color = '#999';
+                
+                if (currentMode === 'emf') {
+                    reading.textContent = 'ERR';
+                    levelText.textContent = 'Перегрузка системы';
+                } else if (currentMode === 'aura') {
+                    reading.textContent = '∞%';
+                    levelText.textContent = 'Слишком много ауры';
+                } else {
+                    reading.textContent = '---';
+                    levelText.textContent = 'Датчик повреждён';
+                }
+                
+                bars.forEach(bar => {
+                    bar.style.height = '0%';
+                });
+                return;
+            }
+
+            if (currentMode === 'emf') {
+                reading.textContent = emfLevel;
+                
+                let color, text;
+                if (emfLevel === 0) {
+                    color = '#4caf50';
+                    text = 'Нормально';
+                } else if (emfLevel <= 1) {
+                    color = '#8bc34a';
+                    text = 'Слабая активность';
+                } else if (emfLevel <= 2) {
+                    color = '#ffc107';
+                    text = 'Умеренная активность';
+                } else if (emfLevel <= 3) {
+                    color = '#ff9800';
+                    text = 'Высокая активность';
+                } else if (emfLevel <= 4) {
+                    color = '#ff5722';
+                    text = 'Опасно';
+                } else {
+                    color = '#f44336';
+                    text = 'Критично';
+                }
+
+                reading.style.color = color;
+                levelText.textContent = text;
+                levelText.style.color = '#999';
+
+                bars.forEach((bar, index) => {
+                    const threshold = index + 1;
+                    if (emfLevel >= threshold) {
+                        bar.style.height = '100%';
+                        bar.style.backgroundColor = color;
+                    } else {
+                        bar.style.height = '0%';
+                    }
+                });
+            } else if (currentMode === 'aura') {
+                reading.textContent = emfLevel + '%';
+                
+                let color, text;
+                if (emfLevel === 0) {
+                    color = '#9c27b0';
+                    text = 'Нет ауры';
+                } else if (emfLevel <= 20) {
+                    color = '#673ab7';
+                    text = 'Слабая аура';
+                } else if (emfLevel <= 40) {
+                    color = '#3f51b5';
+                    text = 'Умеренная аура';
+                } else if (emfLevel <= 60) {
+                    color = '#2196f3';
+                    text = 'Сильная аура';
+                } else if (emfLevel <= 80) {
+                    color = '#00bcd4';
+                    text = 'Яркая аура';
+                } else {
+                    color = '#00e5ff';
+                    text = 'Максимальная аура';
+                }
+
+                reading.style.color = color;
+                levelText.textContent = text;
+                levelText.style.color = '#999';
+
+                bars.forEach((bar, index) => {
+                    const threshold = (index + 1) * 20;
+                    if (emfLevel >= threshold) {
+                        bar.style.height = '100%';
+                        bar.style.backgroundColor = color;
+                    } else if (emfLevel > (index * 20)) {
+                        const percentage = ((emfLevel - (index * 20)) / 20) * 100;
+                        bar.style.height = percentage + '%';
+                        bar.style.backgroundColor = color;
+                    } else {
+                        bar.style.height = '0%';
+                    }
+                });
+            } else {
+                // Radiation mode
+                reading.textContent = emfLevel + ' mSv';
+                
+                let color, text;
+                if (emfLevel === 0) {
+                    color = '#4caf50';
+                    text = 'Безопасно';
+                } else if (emfLevel <= 5) {
+                    color = '#8bc34a';
+                    text = 'Низкий уровень';
+                } else if (emfLevel <= 10) {
+                    color = '#cddc39';
+                    text = 'Повышенный фон';
+                } else if (emfLevel <= 15) {
+                    color = '#ffeb3b';
+                    text = 'Внимание';
+                } else if (emfLevel <= 20) {
+                    color = '#ff9800';
+                    text = 'Опасно';
+                } else if (emfLevel <= 25) {
+                    color = '#ff5722';
+                    text = 'Высокая опасность';
+                } else {
+                    color = '#f44336';
+                    text = 'КРИТИЧНО';
+                }
+
+                reading.style.color = color;
+                levelText.textContent = text;
+                levelText.style.color = '#999';
+
+                bars.forEach((bar, index) => {
+                    const threshold = (index + 1) * 6;
+                    if (emfLevel >= threshold) {
+                        bar.style.height = '100%';
+                        bar.style.backgroundColor = color;
+                    } else if (emfLevel > (index * 6)) {
+                        const percentage = ((emfLevel - (index * 6)) / 6) * 100;
+                        bar.style.height = percentage + '%';
+                        bar.style.backgroundColor = color;
+                    } else {
+                        bar.style.height = '0%';
+                    }
+                });
+            }
+        }
+
+        function checkMaxLevel() {
+            let maxLevel;
+            if (currentMode === 'emf') {
+                maxLevel = 5;
+            } else if (currentMode === 'aura') {
+                maxLevel = 100;
+            } else {
+                maxLevel = 30;
+            }
+
+            if (emfLevel >= maxLevel) {
+                clearTimeout(maxLevelTimeout);
+                maxLevelTimeout = setTimeout(() => {
+                    isBroken = true;
+                    isCooling = true;
+                    clearInterval(increaseInterval);
+                    clearInterval(decreaseInterval);
+                    secretZone.classList.add('cooling');
+                    secretZone.classList.remove('active');
+                    secretZone.textContent = 'Охлаждение...';
+                    updateDisplay();
+                    
+                    navigator.vibrate && navigator.vibrate([200, 100, 200, 100, 200]);
+                    
+                    cooldownTimeout = setTimeout(() => {
+                        isBroken = false;
+                        isCooling = false;
+                        emfLevel = 0;
+                        secretZone.classList.remove('cooling');
+                        secretZone.textContent = 'Калибровка';
+                        updateDisplay();
+                    }, 3000);
+                }, 3000);
+            } else {
+                clearTimeout(maxLevelTimeout);
+            }
+        }
+
+        function startIncrease() {
+            if (isHolding || isBroken || isCooling) return;
+            isHolding = true;
+            secretZone.classList.add('active');
+            
+            clearInterval(decreaseInterval);
+
+            let maxLevel, speed;
+            if (currentMode === 'emf') {
+                maxLevel = 5;
+                speed = 800;
+            } else if (currentMode === 'aura') {
+                maxLevel = 100;
+                speed = 150;
+            } else {
+                maxLevel = 30;
+                speed = 200;
+            }
+
+            increaseInterval = setInterval(() => {
+                if (emfLevel < maxLevel) {
+                    emfLevel++;
+                    updateDisplay();
+                    triggerVibration();
+                    checkMaxLevel();
+                }
+            }, speed);
+        }
+
+        function stopIncrease() {
+            isHolding = false;
+            secretZone.classList.remove('active');
+            clearInterval(increaseInterval);
+            clearTimeout(maxLevelTimeout);
+            
+            if (!isBroken) {
+                startDecrease();
+            }
+        }
+
+        function startDecrease() {
+            clearInterval(decreaseInterval);
+            
+            let speed;
+            if (currentMode === 'emf') {
+                speed = 1500;
+            } else if (currentMode === 'aura') {
+                speed = 200;
+            } else {
+                speed = 350;
+            }
+            
+            decreaseInterval = setInterval(() => {
+                if (emfLevel > 0) {
+                    emfLevel--;
+                    updateDisplay();
+                } else {
+                    clearInterval(decreaseInterval);
+                }
+            }, speed);
+        }
+
+        secretZone.addEventListener('mousedown', startIncrease);
+        secretZone.addEventListener('mouseup', stopIncrease);
+        secretZone.addEventListener('mouseleave', stopIncrease);
+
+        secretZone.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            startIncrease();
+        });
+        secretZone.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            stopIncrease();
+        });
+
+        emfBtn.addEventListener('click', () => {
+            if (currentMode !== 'emf') {
+                currentMode = 'emf';
+                emfLevel = 0;
+                isBroken = false;
+                isCooling = false;
+                emfBtn.classList.add('active');
+                auraBtn.classList.remove('active');
+                radBtn.classList.remove('active');
+                titleText.textContent = 'EMF Detector';
+                secretZone.classList.remove('cooling');
+                secretZone.textContent = 'Калибровка';
+                clearInterval(increaseInterval);
+                clearInterval(decreaseInterval);
+                clearTimeout(maxLevelTimeout);
+                clearTimeout(cooldownTimeout);
+                updateDisplay();
+            }
+        });
+
+        auraBtn.addEventListener('click', () => {
+            if (currentMode !== 'aura') {
+                currentMode = 'aura';
+                emfLevel = 0;
+                isBroken = false;
+                isCooling = false;
+                auraBtn.classList.add('active');
+                emfBtn.classList.remove('active');
+                radBtn.classList.remove('active');
+                titleText.textContent = 'Aura Detector';
+                secretZone.classList.remove('cooling');
+                secretZone.textContent = 'Калибровка';
+                clearInterval(increaseInterval);
+                clearInterval(decreaseInterval);
+                clearTimeout(maxLevelTimeout);
+                clearTimeout(cooldownTimeout);
+                updateDisplay();
+            }
+        });
+
+        radBtn.addEventListener('click', () => {
+            if (currentMode !== 'radiation') {
+                currentMode = 'radiation';
+                emfLevel = 0;
+                isBroken = false;
+                isCooling = false;
+                radBtn.classList.add('active');
+                emfBtn.classList.remove('active');
+                auraBtn.classList.remove('active');
+                titleText.textContent = 'Radiation Detector';
+                secretZone.classList.remove('cooling');
+                secretZone.textContent = 'Калибровка';
+                clearInterval(increaseInterval);
+                clearInterval(decreaseInterval);
+                clearTimeout(maxLevelTimeout);
+                clearTimeout(cooldownTimeout);
+                updateDisplay();
+            }
+        });
+
+        updateDisplay();
+    </script>
+</body>
+</html>
